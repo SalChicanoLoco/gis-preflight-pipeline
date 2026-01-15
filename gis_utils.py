@@ -261,7 +261,8 @@ def process_vector(path: Path, input_root: Path, output_root: Path,
         needs_reprojection = False
         src_epsg = gdf.crs.to_epsg()
         if src_epsg is not None and src_epsg == TARGET_EPSG:
-            needs_reprojection = False
+            # CRS matches by EPSG code, no reprojection needed
+            pass
         elif not CRS.from_user_input(gdf.crs).equals(TARGET_CRS):
             needs_reprojection = True
         
@@ -405,7 +406,12 @@ def process_raster(path: Path, input_root: Path, output_root: Path,
             # rasterio exposes nodatavals; we record the first or join
             nodata_val = src.nodata
             if nodata_val is not None:
-                report.nodata = float(nodata_val)  # Keep as numeric
+                try:
+                    report.nodata = float(nodata_val)  # Keep as numeric
+                except (ValueError, TypeError):
+                    # If conversion fails, log warning and keep as None
+                    report.warnings.append(f"Could not convert nodata value '{nodata_val}' to float")
+                    report.nodata = None
             else:
                 report.nodata = None
 
@@ -449,6 +455,7 @@ def process_raster(path: Path, input_root: Path, output_root: Path,
                 src_epsg = src.crs.to_epsg()
                 if src_epsg is not None and src_epsg == TARGET_EPSG:
                     # CRS matches by EPSG code
+                    need_reproject = False
                     if not report.north_up and fix:
                         need_reproject = True  # Only for orientation fix
                 elif not src.crs.equals(TARGET_CRS):
@@ -554,13 +561,14 @@ def process_las(path: Path, input_root: Path, output_root: Path,
             else:
                 report.original_crs = str(crs)
                 try:
-                    las_epsg = CRS.from_user_input(crs).to_epsg()
+                    las_crs = CRS.from_user_input(crs)
+                    las_epsg = las_crs.to_epsg()
                     if las_epsg is not None and las_epsg != TARGET_EPSG:
                         report.warnings.append(
                             f"CRS (EPSG:{las_epsg}) differs from target (EPSG:{TARGET_EPSG}); "
                             "LAS reprojection not implemented"
                         )
-                    elif not CRS.from_user_input(crs).equals(TARGET_CRS):
+                    elif not las_crs.equals(TARGET_CRS):
                         report.warnings.append(
                             "CRS differs from target; LAS reprojection not implemented"
                         )
