@@ -16,18 +16,18 @@ Key design points
 * Target coordinate reference system (CRS) is hard coded to
   NAD83(2011) / UTM zone 13N (EPSG:6342).  The EPSG definition
   specifies a cartesian 2D coordinate system with east and north axes
-  measured in metres【296392665485662†L58-L67】.  All datasets are reprojected
+  measured in metres.  All datasets are reprojected
   into this CRS when possible.
 * Vector data are handled with GeoPandas.  Invalid geometries are
   detected using the `GeoSeries.is_valid` property and can be
   repaired using `GeoSeries.make_valid`, which returns a series of
-  valid geometries【414398350848300†L260-L270】.  Only safe repairs are
+  valid geometries.  Only safe repairs are
   applied—if `--fix` is not set, invalid geometries are simply
   recorded.
 * Raster data are handled with Rasterio.  The affine transform of a
   north‑up raster has zero rotation parameters and a negative
   (southwards) y pixel size; this typical arrangement is documented in
-  the GeoTIFF FAQ【831530317450866†L594-L599】.  When the source transform
+  the GeoTIFF FAQ.  When the source transform
   contains rotation or non‑negative y pixel size, the raster is
   reprojected to a new north‑up orientation.
 * Point clouds (LAS/LAZ) are optionally inspected if `laspy` is
@@ -82,7 +82,7 @@ from pyproj import CRS
 # -----------------------------------------------------------------------------
 
 # Define the target CRS.  NAD83(2011) / UTM zone 13N uses metres as units
-# and east/north axes【296392665485662†L58-L67】.  See also
+# and east/north axes.  See also
 # https://epsg.io/6342 for further details.
 TARGET_EPSG: int = 6342
 TARGET_CRS: CRS = CRS.from_epsg(TARGET_EPSG)
@@ -257,7 +257,7 @@ def process_vector(path: Path, input_root: Path, output_root: Path,
     report.geometry_fixed = 0
     if num_invalid > 0 and fix:
         try:
-            # make_valid returns valid geometries without altering valid ones【414398350848300†L260-L270】
+            # make_valid returns valid geometries without altering valid ones
             gdf['geometry'] = gdf.geometry.make_valid()
             report.geometry_fixed = num_invalid
         except Exception as exc:
@@ -314,7 +314,7 @@ def _is_north_up(transform: "rasterio.Affine") -> bool:
 
     According to the GeoTIFF FAQ, a typical north‑up arrangement has a
     positive pixel width and a negative pixel height with zero rotation
-    terms【831530317450866†L594-L599】.  Here we interpret the affine matrix as:
+    terms.  Here we interpret the affine matrix as:
 
         \[ A  B  C \]
         \[ D  E  F \]
