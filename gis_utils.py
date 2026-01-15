@@ -243,8 +243,9 @@ def process_vector(path: Path, input_root: Path, output_root: Path,
         try:
             layers = fiona.listlayers(str(path))
             if len(layers) > 1:
+                # GeoPandas reads first layer by default (same as fiona.listlayers()[0])
                 report.warnings.append(
-                    f"GeoPackage contains {len(layers)} layers; only processing layer '{layers[0]}'. "
+                    f"GeoPackage contains {len(layers)} layers; only processing first layer '{layers[0]}'. "
                     f"Other layers: {', '.join(layers[1:])}"
                 )
         except Exception as exc:
@@ -260,11 +261,10 @@ def process_vector(path: Path, input_root: Path, output_root: Path,
     try:
         needs_reprojection = False
         src_epsg = gdf.crs.to_epsg()
-        if src_epsg is not None and src_epsg == TARGET_EPSG:
-            # CRS matches by EPSG code, no reprojection needed
-            pass
-        elif not CRS.from_user_input(gdf.crs).equals(TARGET_CRS):
-            needs_reprojection = True
+        if src_epsg is None or src_epsg != TARGET_EPSG:
+            # EPSG unavailable or doesn't match; check with equals()
+            if not CRS.from_user_input(gdf.crs).equals(TARGET_CRS):
+                needs_reprojection = True
         
         if needs_reprojection:
             gdf = gdf.to_crs(TARGET_CRS)
@@ -454,10 +454,9 @@ def process_raster(path: Path, input_root: Path, output_root: Path,
             try:
                 src_epsg = src.crs.to_epsg()
                 if src_epsg is not None and src_epsg == TARGET_EPSG:
-                    # CRS matches by EPSG code
-                    need_reproject = False
+                    # CRS matches by EPSG code; only reproject for orientation fix
                     if not report.north_up and fix:
-                        need_reproject = True  # Only for orientation fix
+                        need_reproject = True
                 elif not src.crs.equals(TARGET_CRS):
                     need_reproject = True
             except Exception:
