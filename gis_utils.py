@@ -258,7 +258,14 @@ def process_vector(path: Path, input_root: Path, output_root: Path,
 
     # Reproject to target CRS if necessary
     try:
-        if not CRS.from_user_input(gdf.crs).equals(TARGET_CRS):
+        needs_reprojection = False
+        src_epsg = gdf.crs.to_epsg()
+        if src_epsg is not None and src_epsg == TARGET_EPSG:
+            needs_reprojection = False
+        elif not CRS.from_user_input(gdf.crs).equals(TARGET_CRS):
+            needs_reprojection = True
+        
+        if needs_reprojection:
             gdf = gdf.to_crs(TARGET_CRS)
             report.reprojection_applied = True
     except Exception as exc:
@@ -439,12 +446,15 @@ def process_raster(path: Path, input_root: Path, output_root: Path,
             # source and destination CRS to achieve this.
             need_reproject = False
             try:
-                if not src.crs.equals(TARGET_CRS):
-                    need_reproject = True
-                elif not report.north_up and fix:
+                src_epsg = src.crs.to_epsg()
+                if src_epsg is not None and src_epsg == TARGET_EPSG:
+                    # CRS matches by EPSG code
+                    if not report.north_up and fix:
+                        need_reproject = True  # Only for orientation fix
+                elif not src.crs.equals(TARGET_CRS):
                     need_reproject = True
             except Exception:
-                # if equality test fails, assume need to reproject
+                # if comparison fails, assume need to reproject
                 need_reproject = True
 
             # Prepare output path
@@ -543,11 +553,20 @@ def process_las(path: Path, input_root: Path, output_root: Path,
                 report.errors.append("Missing CRS in LAS/LAZ header")
             else:
                 report.original_crs = str(crs)
-                # If the CRS differs from target, flag but do not
-                # perform reprojection.
-                if not CRS.from_user_input(crs).equals(TARGET_CRS):
+                try:
+                    las_epsg = CRS.from_user_input(crs).to_epsg()
+                    if las_epsg is not None and las_epsg != TARGET_EPSG:
+                        report.warnings.append(
+                            f"CRS (EPSG:{las_epsg}) differs from target (EPSG:{TARGET_EPSG}); "
+                            "LAS reprojection not implemented"
+                        )
+                    elif not CRS.from_user_input(crs).equals(TARGET_CRS):
+                        report.warnings.append(
+                            "CRS differs from target; LAS reprojection not implemented"
+                        )
+                except Exception:
                     report.warnings.append(
-                        "CRS differs from target; LAS reprojection not implemented"
+                        "Could not compare CRS with target; LAS reprojection not implemented"
                     )
         except Exception as exc:
             report.errors.append(f"Failed to read LAS/LAZ file: {exc}")
