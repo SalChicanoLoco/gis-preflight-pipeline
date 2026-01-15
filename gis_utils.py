@@ -128,7 +128,7 @@ class RasterReport:
     reprojection_applied: bool = False
     north_up: Optional[bool] = None
     resolution: Optional[Tuple[float, float]] = None
-    nodata: Optional[str] = None
+    nodata: Optional[float] = None
     bands: Optional[int] = None
     dtype: Optional[str] = None
     data_min: Optional[float] = None
@@ -143,6 +143,9 @@ class RasterReport:
         data = asdict(self)
         data['warnings'] = '; '.join(self.warnings) if self.warnings else ''
         data['errors'] = '; '.join(self.errors) if self.errors else ''
+        # Convert nodata to string only for CSV serialization
+        if self.nodata is not None:
+            data['nodata'] = str(self.nodata)
         # flatten dtype list into string if present
         if isinstance(self.dtype, (list, tuple)):
             data['dtype'] = ','.join(str(d) for d in self.dtype)
@@ -395,7 +398,7 @@ def process_raster(path: Path, input_root: Path, output_root: Path,
             # rasterio exposes nodatavals; we record the first or join
             nodata_val = src.nodata
             if nodata_val is not None:
-                report.nodata = str(nodata_val)
+                report.nodata = float(nodata_val)  # Keep as numeric
             else:
                 report.nodata = None
 
