@@ -74,6 +74,11 @@ try:
 except ImportError:
     laspy = None  # type: ignore
 
+try:
+    import fiona
+except ImportError:
+    fiona = None  # type: ignore
+
 from pyproj import CRS
 
 
@@ -229,6 +234,18 @@ def process_vector(path: Path, input_root: Path, output_root: Path,
     except Exception as exc:
         report.errors.append(f"Failed to read vector file: {exc}")
         return report
+
+    # Check for multiple layers in GeoPackage
+    if path.suffix.lower() == '.gpkg' and fiona is not None:
+        try:
+            layers = fiona.listlayers(str(path))
+            if len(layers) > 1:
+                report.warnings.append(
+                    f"GeoPackage contains {len(layers)} layers; only processing layer '{layers[0]}'. "
+                    f"Other layers: {', '.join(layers[1:])}"
+                )
+        except Exception as exc:
+            report.warnings.append(f"Could not enumerate GeoPackage layers: {exc}")
 
     if gdf.crs is None:
         report.errors.append("Missing CRS; cannot process")
