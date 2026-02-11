@@ -10,7 +10,7 @@ produces cleaned output files and generates a comprehensive report.
 
 The project CRS is **NAD83(2011) / UTM zone 13N (EPSG: 6342)**.  This
 projected coordinate system uses a Transverse Mercator projection and
-defines easting and northing axes measured in metres【296392665485662†L58-L67】.
+defines easting and northing axes measured in metres.
 All input data must ultimately be transformed into this CRS.  CRS
 information is not inferred; if a dataset is missing a CRS the
 pipeline treats it as a critical error and stops processing that file.
@@ -18,17 +18,17 @@ pipeline treats it as a critical error and stops processing that file.
 Vector geometries can become invalid through editing operations such as
 self‑intersections or duplicate vertices.  GeoPandas provides a
 `GeoSeries.make_valid()` method which repairs invalid geometries and
-returns a new series containing valid shapes【414398350848300†L260-L270】.
+returns a new series containing valid shapes.
 
 For raster data, north‑up orientation is important because non‑zero
 rotation terms or positive y pixel sizes can indicate that the image
 has been rotated.  The GeoTIFF FAQ states that a typical north‑up
 georeference matrix has a positive pixel width, a zero rotation term
-and a *negative* pixel height (because image rows run downwards)【831530317450866†L594-L599】.
+and a *negative* pixel height (because image rows run downwards).
 The pipeline checks each raster’s affine transform and, when the
 `--fix` flag is supplied, reprojects rotated rasters into a north‑up
 orientation.  Missing or undefined nodata values are recorded from
-Rasterio’s `dataset.nodata` property【203913321545165†L88-L93】.
+Rasterio’s `dataset.nodata` property.
 
 ## Installation
 
@@ -93,7 +93,7 @@ After a run the output directory contains:
 * A **mirrored folder structure** with cleaned GIS files.  Vectors are
   reprojected to EPSG:6342 and invalid geometries are fixed when
   possible.  Rasters are reprojected to EPSG:6342, optionally made
-  north‑up and preserve nodata metadata【831530317450866†L594-L599】【203913321545165†L88-L93】.
+  north‑up and preserve nodata metadata.
 * `qa_qc_report.csv` – a tabular summary of every processed dataset.
   Each row includes the file path, data type, original and target CRS,
   whether reprojection was applied, bounding box and centroid (in

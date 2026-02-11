@@ -16,18 +16,18 @@ Key design points
 * Target coordinate reference system (CRS) is hard coded to
   NAD83(2011) / UTM zone 13N (EPSG:6342).  The EPSG definition
   specifies a cartesian 2D coordinate system with east and north axes
-  measured in metres【296392665485662†L58-L67】.  All datasets are reprojected
+  measured in metres.  All datasets are reprojected
   into this CRS when possible.
 * Vector data are handled with GeoPandas.  Invalid geometries are
   detected using the `GeoSeries.is_valid` property and can be
   repaired using `GeoSeries.make_valid`, which returns a series of
-  valid geometries【414398350848300†L260-L270】.  Only safe repairs are
+  valid geometries.  Only safe repairs are
   applied—if `--fix` is not set, invalid geometries are simply
   recorded.
 * Raster data are handled with Rasterio.  The affine transform of a
   north‑up raster has zero rotation parameters and a negative
   (southwards) y pixel size; this typical arrangement is documented in
-  the GeoTIFF FAQ【831530317450866†L594-L599】.  When the source transform
+  the GeoTIFF FAQ.  When the source transform
   contains rotation or non‑negative y pixel size, the raster is
   reprojected to a new north‑up orientation.
 * Point clouds (LAS/LAZ) are optionally inspected if `laspy` is
@@ -74,6 +74,11 @@ try:
 except ImportError:
     laspy = None  # type: ignore
 
+try:
+    import fiona
+except ImportError:
+    fiona = None  # type: ignore
+
 from pyproj import CRS
 
 
@@ -82,7 +87,7 @@ from pyproj import CRS
 # -----------------------------------------------------------------------------
 
 # Define the target CRS.  NAD83(2011) / UTM zone 13N uses metres as units
-# and east/north axes【296392665485662†L58-L67】.  See also
+# and east/north axes.  See also
 # https://epsg.io/6342 for further details.
 TARGET_EPSG: int = 6342
 TARGET_CRS: CRS = CRS.from_epsg(TARGET_EPSG)
@@ -123,7 +128,7 @@ class RasterReport:
     reprojection_applied: bool = False
     north_up: Optional[bool] = None
     resolution: Optional[Tuple[float, float]] = None
-    nodata: Optional[str] = None
+    nodata: Optional[float] = None
     bands: Optional[int] = None
     dtype: Optional[str] = None
     data_min: Optional[float] = None
@@ -138,6 +143,9 @@ class RasterReport:
         data = asdict(self)
         data['warnings'] = '; '.join(self.warnings) if self.warnings else ''
         data['errors'] = '; '.join(self.errors) if self.errors else ''
+        # Convert nodata to string only for CSV serialization
+        if self.nodata is not None:
+            data['nodata'] = str(self.nodata)
         # flatten dtype list into string if present
         if isinstance(self.dtype, (list, tuple)):
             data['dtype'] = ','.join(str(d) for d in self.dtype)
@@ -230,6 +238,19 @@ def process_vector(path: Path, input_root: Path, output_root: Path,
         report.errors.append(f"Failed to read vector file: {exc}")
         return report
 
+    # Check for multiple layers in GeoPackage
+    if path.suffix.lower() == '.gpkg' and fiona is not None:
+        try:
+            layers = fiona.listlayers(str(path))
+            if len(layers) > 1:
+                # GeoPandas reads first layer by default (same as fiona.listlayers()[0])
+                report.warnings.append(
+                    f"GeoPackage contains {len(layers)} layers; only processing first layer '{layers[0]}'. "
+                    f"Other layers: {', '.join(layers[1:])}"
+                )
+        except Exception as exc:
+            report.warnings.append(f"Could not enumerate GeoPackage layers: {exc}")
+
     if gdf.crs is None:
         report.errors.append("Missing CRS; cannot process")
         return report
@@ -238,7 +259,14 @@ def process_vector(path: Path, input_root: Path, output_root: Path,
 
     # Reproject to target CRS if necessary
     try:
-        if not CRS.from_user_input(gdf.crs).equals(TARGET_CRS):
+        needs_reprojection = False
+        src_epsg = gdf.crs.to_epsg()
+        if src_epsg is None or src_epsg != TARGET_EPSG:
+            # EPSG unavailable or doesn't match; check with equals()
+            if not CRS.from_user_input(gdf.crs).equals(TARGET_CRS):
+                needs_reprojection = True
+        
+        if needs_reprojection:
             gdf = gdf.to_crs(TARGET_CRS)
             report.reprojection_applied = True
     except Exception as exc:
@@ -257,7 +285,7 @@ def process_vector(path: Path, input_root: Path, output_root: Path,
     report.geometry_fixed = 0
     if num_invalid > 0 and fix:
         try:
-            # make_valid returns valid geometries without altering valid ones【414398350848300†L260-L270】
+            # make_valid returns valid geometries without altering valid ones
             gdf['geometry'] = gdf.geometry.make_valid()
             report.geometry_fixed = num_invalid
         except Exception as exc:
@@ -314,7 +342,7 @@ def _is_north_up(transform: "rasterio.Affine") -> bool:
 
     According to the GeoTIFF FAQ, a typical north‑up arrangement has a
     positive pixel width and a negative pixel height with zero rotation
-    terms【831530317450866†L594-L599】.  Here we interpret the affine matrix as:
+    terms.  Here we interpret the affine matrix as:
 
         \[ A  B  C \]
         \[ D  E  F \]
@@ -378,7 +406,12 @@ def process_raster(path: Path, input_root: Path, output_root: Path,
             # rasterio exposes nodatavals; we record the first or join
             nodata_val = src.nodata
             if nodata_val is not None:
-                report.nodata = str(nodata_val)
+                try:
+                    report.nodata = float(nodata_val)  # Keep as numeric
+                except (ValueError, TypeError):
+                    # If conversion fails, log warning and keep as None
+                    report.warnings.append(f"Could not convert nodata value '{nodata_val}' to float")
+                    report.nodata = None
             else:
                 report.nodata = None
 
@@ -419,12 +452,15 @@ def process_raster(path: Path, input_root: Path, output_root: Path,
             # source and destination CRS to achieve this.
             need_reproject = False
             try:
-                if not src.crs.equals(TARGET_CRS):
-                    need_reproject = True
-                elif not report.north_up and fix:
+                src_epsg = src.crs.to_epsg()
+                if src_epsg is not None and src_epsg == TARGET_EPSG:
+                    # CRS matches by EPSG code; only reproject for orientation fix
+                    if not report.north_up and fix:
+                        need_reproject = True
+                elif not src.crs.equals(TARGET_CRS):
                     need_reproject = True
             except Exception:
-                # if equality test fails, assume need to reproject
+                # if comparison fails, assume need to reproject
                 need_reproject = True
 
             # Prepare output path
@@ -523,11 +559,21 @@ def process_las(path: Path, input_root: Path, output_root: Path,
                 report.errors.append("Missing CRS in LAS/LAZ header")
             else:
                 report.original_crs = str(crs)
-                # If the CRS differs from target, flag but do not
-                # perform reprojection.
-                if not CRS.from_user_input(crs).equals(TARGET_CRS):
+                try:
+                    las_crs = CRS.from_user_input(crs)
+                    las_epsg = las_crs.to_epsg()
+                    if las_epsg is not None and las_epsg != TARGET_EPSG:
+                        report.warnings.append(
+                            f"CRS (EPSG:{las_epsg}) differs from target (EPSG:{TARGET_EPSG}); "
+                            "LAS reprojection not implemented"
+                        )
+                    elif not las_crs.equals(TARGET_CRS):
+                        report.warnings.append(
+                            "CRS differs from target; LAS reprojection not implemented"
+                        )
+                except Exception:
                     report.warnings.append(
-                        "CRS differs from target; LAS reprojection not implemented"
+                        "Could not compare CRS with target; LAS reprojection not implemented"
                     )
         except Exception as exc:
             report.errors.append(f"Failed to read LAS/LAZ file: {exc}")
